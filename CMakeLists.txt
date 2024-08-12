@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.22)
+MESSAGE(STATUS "Using toolchain file: ${CMAKE_TOOLCHAIN_FILE}")
+
+project(hik-voxel)
+
+set(CMAKE_CXX_STANDARD 17)
+
+add_executable(hik-voxel
+        src/main.cpp
+        src/Window.cpp)
+
+find_package(SDL2 CONFIG REQUIRED)
+target_link_libraries(hik-voxel
+    PRIVATE
+    $<TARGET_NAME_IF_EXISTS:SDL2::SDL2main>
+    $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
+)
+
+find_package(Vulkan REQUIRED)
+target_link_libraries(hik-voxel PRIVATE Vulkan::Vulkan)
+
+find_package(glm CONFIG REQUIRED)
+target_link_libraries(hik-voxel PRIVATE glm::glm)
+
+find_package(spdlog CONFIG REQUIRED)
+target_link_libraries(hik-voxel PRIVATE spdlog::spdlog)
