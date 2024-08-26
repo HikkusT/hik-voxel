@@ -3,7 +3,8 @@
 #include "Window.h"
 
 namespace cubik {
-  Window::Window(glm::ivec2 size, const std::string &name) {
+  Window::Window(glm::ivec2 size, const std::string &name)
+  : Size(size) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
       spdlog::error("Failed to initialize SDL: {}", SDL_GetError());
       abort();
@@ -18,6 +19,7 @@ namespace cubik {
         SDL_WINDOW_VULKAN);
     if (_window == nullptr) {
       spdlog::error("Failed to create SDL window: {}", SDL_GetError());
+      SDL_Quit();
       abort();
     }
   }
@@ -32,7 +34,19 @@ namespace cubik {
     }
   }
 
+  VkSurfaceKHR const Window::createVulkanSurface(const VkInstance *instance) const {
+    VkSurfaceKHR surface;
+    if (SDL_Vulkan_CreateSurface(_window, *instance, &surface) == SDL_FALSE) {
+      spdlog::error("Failed to create vulkan surface: {}", SDL_GetError());
+      SDL_Quit();
+      abort();
+    }
+
+    return surface;
+  }
+
   Window::~Window() {
-    SDL_DestroyWindow(_window);
+    if (_window) SDL_DestroyWindow(_window);
+    SDL_Quit();
   }
 }

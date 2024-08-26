@@ -3,6 +3,7 @@
 #include <SDL.h>
 #include <string>
 #include <glm/vec2.hpp>
+#include "SDL_vulkan.h"
 
 namespace cubik {
   class Window {
@@ -13,8 +14,11 @@ namespace cubik {
     Window(glm::ivec2 size, const std::string &name);
     ~Window();
 
+    const glm::ivec2 Size;
+
     bool IsClosed() const { return _isClosed; }
 
     void processInputs();
+    VkSurfaceKHR const createVulkanSurface(const VkInstance* instance) const;
   };
 }
