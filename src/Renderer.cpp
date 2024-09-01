@@ -1,6 +1,18 @@
 #include "Renderer.h"
+#include "VulkanHelper.h"
 #include "VkBootstrap.h"
 #include "spdlog/spdlog.h"
+#include "vulkan/vk_enum_string_helper.h"
+
+// From https://vkguide.dev
+#define VK_CHECK(x)                                                     \
+    do {                                                                \
+        VkResult err = x;                                               \
+        if (err) {                                                      \
+             spdlog::error("Detected Vulkan error: {}", string_VkResult(err)); \
+            abort();                                                    \
+        }                                                               \
+    } while (0)
 
 namespace cubik {
   Renderer::Renderer(const Window& window)
@@ -48,13 +60,19 @@ namespace cubik {
     vkb::PhysicalDevice vkbPhysicalDevice = *physicalDeviceResult;
 
     _chosenGPU = vkbPhysicalDevice.physical_device;
-    _device = vkb::DeviceBuilder{ vkbPhysicalDevice }.build().value().device; // Not much to go wrong here, afaik
+    vkb::Device vkbDevice = vkb::DeviceBuilder{ vkbPhysicalDevice }.build().value();
+    _device = vkbDevice.device; // Not much to go wrong here, afaik
 
     create_swapchain(DisplayWindow.Size);
+
+    _graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+    _graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
+    init_commands();
+    init_sync_structures();
   }
 
-  void Renderer::create_swapchain(glm::ivec2 size)
-  {
+  void Renderer::create_swapchain(glm::ivec2 size) {
     vkb::SwapchainBuilder swapchainBuilder{ _chosenGPU,_device,_surface };
 
     vkb::Swapchain vkbSwapchain = swapchainBuilder
@@ -70,6 +88,83 @@ namespace cubik {
     _swapchainImageViews = vkbSwapchain.get_image_views().value();
   }
 
+  void Renderer::init_commands() {
+    VkCommandPoolCreateInfo commandPoolInfo = vkutil::command_pool_create_info(_graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+
+    for (auto & frame : _frames) {
+      VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &frame._commandPool));
+
+      VkCommandBufferAllocateInfo cmdAllocInfo = vkutil::command_buffer_allocate_info(frame._commandPool, 1);
+
+      VK_CHECK(vkAllocateCommandBuffers(_device, &cmdAllocInfo, &frame._mainCommandBuffer));
+    }
+  }
+
+  void Renderer::init_sync_structures() {
+    VkFenceCreateInfo fenceCreateInfo = vkutil::fence_create_info(VK_FENCE_CREATE_SIGNALED_BIT);
+    VkSemaphoreCreateInfo semaphoreCreateInfo = vkutil::semaphore_create_info();
+
+    for (auto & frame : _frames) {
+      VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &frame._renderFence));
+
+      VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &frame._swapchainSemaphore));
+      VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &frame._renderSemaphore));
+    }
+  }
+
+
+  // Main
+  void Renderer::draw() {
+    VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, true, 1000000000));
+    VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
+
+    uint32_t swapchainImageIndex;
+    VK_CHECK(vkAcquireNextImageKHR(_device, _swapchain, 1000000000, get_current_frame()._swapchainSemaphore, nullptr, &swapchainImageIndex));
+
+
+    VkCommandBuffer cmd = get_current_frame()._mainCommandBuffer;
+    VK_CHECK(vkResetCommandBuffer(cmd, 0));
+    VkCommandBufferBeginInfo cmdBeginInfo = vkutil::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+    VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+    vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    float flash = std::abs(std::sin(_frameNumber / 120.f));
+    VkClearColorValue clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
+
+    VkImageSubresourceRange clearRange = vkutil::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+    vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex],VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+    VK_CHECK(vkEndCommandBuffer(cmd));
+
+    VkCommandBufferSubmitInfo cmdSubmitInfo = vkutil::command_buffer_submit_info(cmd);
+
+    VkSemaphoreSubmitInfo waitInfo = vkutil::semaphore_submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,get_current_frame()._swapchainSemaphore);
+    VkSemaphoreSubmitInfo signalInfo = vkutil::semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, get_current_frame()._renderSemaphore);
+
+    VkSubmitInfo2 submit = vkutil::submit_info(&cmdSubmitInfo, &signalInfo, &waitInfo);
+
+
+    VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, get_current_frame()._renderFence));
+
+    VkPresentInfoKHR presentInfo = {
+      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+      .pNext = nullptr,
+      .waitSemaphoreCount = 1,
+      .pWaitSemaphores = &get_current_frame()._renderSemaphore,
+      .swapchainCount = 1,
+      .pSwapchains = &_swapchain,
+      .pImageIndices = &swapchainImageIndex
+    };
+
+    VK_CHECK(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
+
+    _frameNumber++;
+  }
+
+
+
   // Cleanup
   void Renderer::destroy_swapchain()
   {
@@ -81,8 +176,17 @@ namespace cubik {
     }
   }
 
-  Renderer::~Renderer()
-  {
+  Renderer::~Renderer() {
+    vkDeviceWaitIdle(_device);
+
+    for (auto & frame : _frames) {
+      vkDestroyCommandPool(_device, frame._commandPool, nullptr);
+
+      vkDestroyFence(_device, frame._renderFence, nullptr);
+      vkDestroySemaphore(_device, frame._renderSemaphore, nullptr);
+      vkDestroySemaphore(_device, frame._swapchainSemaphore, nullptr);
+    }
+
     destroy_swapchain();
 
     vkDestroySurfaceKHR(_instance, _surface, nullptr);

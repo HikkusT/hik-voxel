@@ -9,7 +9,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(hik-voxel
         src/main.cpp
         src/Window.cpp
-        src/Renderer.cpp)
+        src/Renderer.cpp
+        src/VulkanHelper.cpp)
 
 find_package(SDL2 CONFIG REQUIRED)
 target_link_libraries(hik-voxel

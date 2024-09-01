@@ -6,11 +6,12 @@
 int main(int argc, char *argv[]) {
   spdlog::info("Starting Cubik");
 
-  auto window = cubik::Window(glm::ivec2(1700, 900), "Test hik");
+  auto window = cubik::Window(glm::ivec2(1700, 900), "Cubik");
   auto renderer = cubik::Renderer(window);
 
   while (!window.IsClosed()) {
     window.processInputs();
+    renderer.draw();
   }
 
   spdlog::info("Cubik has successfully shut down!");
