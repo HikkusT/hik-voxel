@@ -21,6 +21,15 @@ target_link_libraries(hik-voxel
 find_package(Vulkan REQUIRED)
 target_link_libraries(hik-voxel PRIVATE Vulkan::Vulkan)
 
+find_package(VulkanUtilityLibraries CONFIG REQUIRED)
+target_link_libraries(hik-voxel PRIVATE Vulkan::LayerSettings Vulkan::UtilityHeaders Vulkan::CompilerConfiguration)
+
+message(STATUS "Vulkan Include Directory: ${Vulkan_INCLUDE_DIRS}")
+message(STATUS "Vulkan Library: ${Vulkan_LIBRARIES}")
+if (Vulkan_FOUND)
+    message(STATUS "Vulkan found version: ${Vulkan_VERSION}")
+endif()
+
 find_package(glm CONFIG REQUIRED)
 target_link_libraries(hik-voxel PRIVATE glm::glm)
 
