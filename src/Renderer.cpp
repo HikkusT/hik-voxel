@@ -1,8 +1,10 @@
 #include "Renderer.h"
-#include "VulkanHelper.h"
 #include "VkBootstrap.h"
 #include "spdlog/spdlog.h"
 #include "vulkan/vk_enum_string_helper.h"
+
+#define VMA_IMPLEMENTATION
+#include "vk_mem_alloc.h"
 
 // From https://vkguide.dev
 #define VK_CHECK(x)                                                     \
@@ -63,11 +65,21 @@ namespace cubik {
     vkb::Device vkbDevice = vkb::DeviceBuilder{ vkbPhysicalDevice }.build().value();
     _device = vkbDevice.device; // Not much to go wrong here, afaik
 
-    create_swapchain(DisplayWindow.Size);
-
     _graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
     _graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
 
+    VmaAllocatorCreateInfo allocatorInfo = {
+      .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+      .physicalDevice = _chosenGPU,
+      .device = _device,
+      .instance = _instance
+    };
+    vmaCreateAllocator(&allocatorInfo, &_allocator);
+    _mainDeletionQueue.push_function([&]() {
+      vmaDestroyAllocator(_allocator);
+    });
+
+    create_swapchain(DisplayWindow.Size);
     init_commands();
     init_sync_structures();
   }
@@ -84,8 +96,41 @@ namespace cubik {
         .value();
 
     _swapchain = vkbSwapchain.swapchain;
+    _swapchainExtent = vkbSwapchain.extent;
     _swapchainImages = vkbSwapchain.get_images().value();
     _swapchainImageViews = vkbSwapchain.get_image_views().value();
+
+
+    VkExtent3D drawImageExtent = {
+      static_cast<uint32_t>(size.x), // TODO: Review
+      static_cast<uint32_t>(size.y),
+      1
+    };
+
+    //hardcoding the draw format to 32 bit float
+    _drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    _drawImage.imageExtent = drawImageExtent;
+
+    VkImageUsageFlags drawImageUsages{};
+    drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    drawImageUsages |= VK_IMAGE_USAGE_STORAGE_BIT;
+    drawImageUsages |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+    VkImageCreateInfo rawImgInfo = vkutil::image_create_info(_drawImage.imageFormat, drawImageUsages, drawImageExtent);
+    VmaAllocationCreateInfo rawImgAllocInfo = {
+      .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+      .requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+    vmaCreateImage(_allocator, &rawImgInfo, &rawImgAllocInfo, &_drawImage.image, &_drawImage.allocation, nullptr);
+    VkImageViewCreateInfo rawViewIndo = vkutil::imageview_create_info(_drawImage.imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+    VK_CHECK(vkCreateImageView(_device, &rawViewIndo, nullptr, &_drawImage.imageView));
+
+    // TODO: Review this syntax
+    _mainDeletionQueue.push_function([=]() {
+      vkDestroyImageView(_device, _drawImage.imageView, nullptr);
+      vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
+    });
   }
 
   void Renderer::init_commands() {
@@ -116,6 +161,7 @@ namespace cubik {
   // Main
   void Renderer::draw() {
     VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, true, 1000000000));
+    get_current_frame()._deletionQueue.flush();
     VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
 
     uint32_t swapchainImageIndex;
@@ -127,14 +173,16 @@ namespace cubik {
     VkCommandBufferBeginInfo cmdBeginInfo = vkutil::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-    vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-    float flash = std::abs(std::sin(_frameNumber / 120.f));
-    VkClearColorValue clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
+    _drawExtent.width = _drawImage.imageExtent.width;
+    _drawExtent.height = _drawImage.imageExtent.height;
 
-    VkImageSubresourceRange clearRange = vkutil::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+    vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    draw_background(cmd);
+    vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-    vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex],VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    vkutil::copy_image_to_image(cmd, _drawImage.image, _swapchainImages[swapchainImageIndex], _drawExtent, _swapchainExtent);
+    vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     VK_CHECK(vkEndCommandBuffer(cmd));
 
@@ -163,6 +211,14 @@ namespace cubik {
     _frameNumber++;
   }
 
+  void Renderer::draw_background(VkCommandBuffer cmd) {
+    float flash = std::abs(std::sin(_frameNumber / 120.f));
+    VkClearColorValue clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
+
+    VkImageSubresourceRange clearRange = vkutil::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+  }
+
 
 
   // Cleanup
@@ -185,7 +241,11 @@ namespace cubik {
       vkDestroyFence(_device, frame._renderFence, nullptr);
       vkDestroySemaphore(_device, frame._renderSemaphore, nullptr);
       vkDestroySemaphore(_device, frame._swapchainSemaphore, nullptr);
+
+      frame._deletionQueue.flush();
     }
+
+    _mainDeletionQueue.flush();
 
     destroy_swapchain();
 
