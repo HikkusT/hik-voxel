@@ -20,7 +20,8 @@ target_link_libraries(hik-voxel
 )
 
 find_package(Vulkan REQUIRED)
-target_link_libraries(hik-voxel PRIVATE Vulkan::Vulkan)
+find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+target_link_libraries(hik-voxel PRIVATE Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
 
 find_package(VulkanUtilityLibraries CONFIG REQUIRED)
 target_link_libraries(hik-voxel PRIVATE Vulkan::LayerSettings Vulkan::UtilityHeaders Vulkan::CompilerConfiguration)
