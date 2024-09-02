@@ -4,6 +4,7 @@
 #include "vulkan/vulkan_core.h"
 #include "Window.h"
 #include "VulkanHelper.h"
+#include "Descriptor.h"
 #include "vk_mem_alloc.h"
 
 namespace cubik {
@@ -38,6 +39,13 @@ namespace cubik {
     AllocatedImage _drawImage;
     VkExtent2D _drawExtent;
 
+    vkutil::DescriptorAllocator globalDescriptorAllocator;
+    VkDescriptorSet _drawImageDescriptors;
+    VkDescriptorSetLayout _drawImageDescriptorLayout;
+
+    VkPipeline _gradientPipeline;
+    VkPipelineLayout _gradientPipelineLayout;
+
     VkInstance _instance;
     VkDebugUtilsMessengerEXT _debug_messenger;
     VkPhysicalDevice _chosenGPU;
@@ -58,6 +66,9 @@ namespace cubik {
     void create_swapchain(glm::ivec2 size);
     void init_commands();
     void init_sync_structures();
+    void init_descriptors();
+    void init_pipelines();
+    void init_background_pipelines();
 
     void draw_background(VkCommandBuffer cmd);
 

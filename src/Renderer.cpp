@@ -1,20 +1,10 @@
 #include "Renderer.h"
 #include "VkBootstrap.h"
 #include "spdlog/spdlog.h"
-#include "vulkan/vk_enum_string_helper.h"
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
-
-// From https://vkguide.dev
-#define VK_CHECK(x)                                                     \
-    do {                                                                \
-        VkResult err = x;                                               \
-        if (err) {                                                      \
-             spdlog::error("Detected Vulkan error: {}", string_VkResult(err)); \
-            abort();                                                    \
-        }                                                               \
-    } while (0)
+#include "Pipeline.h"
 
 namespace cubik {
   Renderer::Renderer(const Window& window)
@@ -82,6 +72,8 @@ namespace cubik {
     create_swapchain(DisplayWindow.Size);
     init_commands();
     init_sync_structures();
+    init_descriptors();
+    init_pipelines();
   }
 
   void Renderer::create_swapchain(glm::ivec2 size) {
@@ -157,6 +149,84 @@ namespace cubik {
     }
   }
 
+  void Renderer::init_descriptors() {
+    std::vector<vkutil::DescriptorAllocator::PoolSizeRatio> sizes = {
+      { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 }
+    };
+
+    globalDescriptorAllocator.init_pool(_device, 10, sizes);
+
+    _drawImageDescriptorLayout =
+      vkutil::DescriptorLayoutBuilder {}
+      .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+      .build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
+
+    _drawImageDescriptors = globalDescriptorAllocator.allocate(_device,_drawImageDescriptorLayout);
+
+    VkDescriptorImageInfo imgInfo{
+      .imageView = _drawImage.imageView,
+      .imageLayout = VK_IMAGE_LAYOUT_GENERAL
+    };
+
+    VkWriteDescriptorSet drawImageWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .pNext = nullptr,
+      .dstSet = _drawImageDescriptors,
+      .dstBinding = 0,
+      .descriptorCount = 1, // TODO: What is this???
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+      .pImageInfo = &imgInfo
+    };
+    vkUpdateDescriptorSets(_device, 1, &drawImageWrite, 0, nullptr);
+
+    _mainDeletionQueue.push_function([&]() {
+      globalDescriptorAllocator.destroy_pool(_device);
+      vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
+    });
+  }
+
+  void Renderer::init_pipelines() {
+    init_background_pipelines();
+  }
+
+  void Renderer::init_background_pipelines() {
+    VkPipelineLayoutCreateInfo computeLayout {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .pNext = nullptr,
+      .setLayoutCount = 1,
+      .pSetLayouts = &_drawImageDescriptorLayout
+    };
+    VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
+
+    VkShaderModule computeDrawShader;
+    if (!vkutil::load_shader_module("../shaders/sphere.comp.spv", _device, &computeDrawShader))
+    {
+      fmt::print("Error when building the compute shader \n");
+    }
+
+    VkPipelineShaderStageCreateInfo stageInfo {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .pNext = nullptr,
+      .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+      .module = computeDrawShader,
+      .pName = "main"
+    };
+    VkComputePipelineCreateInfo computePipelineCreateInfo {
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .pNext = nullptr,
+      .stage = stageInfo,
+      .layout = _gradientPipelineLayout
+    };
+
+    VK_CHECK(vkCreateComputePipelines(_device,VK_NULL_HANDLE,1,&computePipelineCreateInfo, nullptr, &_gradientPipeline));
+
+    vkDestroyShaderModule(_device, computeDrawShader, nullptr);
+    _mainDeletionQueue.push_function([&]() {
+      vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
+      vkDestroyPipeline(_device, _gradientPipeline, nullptr);
+    });
+  }
+
 
   // Main
   void Renderer::draw() {
@@ -178,6 +248,9 @@ namespace cubik {
 
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     draw_background(cmd);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+    vkCmdDispatch(cmd, std::ceil(_drawExtent.width / 16.0), std::ceil(_drawExtent.height / 16.0), 1);
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
