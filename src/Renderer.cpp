@@ -70,6 +70,7 @@ namespace cubik {
     });
 
     create_swapchain(DisplayWindow.Size);
+    init_world();
     init_commands();
     init_sync_structures();
     init_descriptors();
@@ -125,6 +126,51 @@ namespace cubik {
     });
   }
 
+  void Renderer::init_world() {
+    size_t bufferSize = sizeof(WORLD_SIZE) + sizeof(VOXEL_SIZE) + sizeof(int) * WORLD_SIZE * WORLD_SIZE * WORLD_SIZE;
+
+    VkBufferCreateInfo bufferInfo = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = bufferSize,
+      .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VK_CHECK(vkCreateBuffer(_device, &bufferInfo, nullptr, &_worldBuffer));
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(_device, _worldBuffer, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .allocationSize = memRequirements.size,
+      .memoryTypeIndex = vkutil::findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _chosenGPU)
+    };
+
+    VK_CHECK(vkAllocateMemory(_device, &allocInfo, nullptr, &_worldBufferMemory));
+
+    VK_CHECK(vkBindBufferMemory(_device, _worldBuffer, _worldBufferMemory, 0));
+
+
+    std::vector<int> voxelData(WORLD_SIZE * WORLD_SIZE * WORLD_SIZE, 0);
+    for (int i = 0; i < WORLD_SIZE; i++) {
+      for (int j = 0; j < WORLD_SIZE; j++) {
+        for (int k = 0 ; k < WORLD_SIZE; k++) {
+          voxelData[i * WORLD_SIZE * WORLD_SIZE + j * WORLD_SIZE + k] = k < j ? 1 : 0;
+        }
+      }
+    }
+//    voxelData[1] = 1;
+
+    void* data;
+    VK_CHECK(vkMapMemory(_device, _worldBufferMemory, 0, bufferSize, 0, &data));
+    memcpy(data, &WORLD_SIZE, sizeof(WORLD_SIZE));
+    memcpy(static_cast<char*>(data) + sizeof(WORLD_SIZE), &VOXEL_SIZE, sizeof(VOXEL_SIZE));
+    memcpy(static_cast<char*>(data) + sizeof(WORLD_SIZE) + sizeof(VOXEL_SIZE), voxelData.data(), sizeof(int) * WORLD_SIZE * WORLD_SIZE * WORLD_SIZE);
+
+    vkUnmapMemory(_device, _worldBufferMemory);
+  }
+
   void Renderer::init_commands() {
     VkCommandPoolCreateInfo commandPoolInfo = vkutil::command_pool_create_info(_graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
@@ -159,15 +205,16 @@ namespace cubik {
     _drawImageDescriptorLayout =
       vkutil::DescriptorLayoutBuilder {}
       .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+      .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
       .build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
 
     _drawImageDescriptors = globalDescriptorAllocator.allocate(_device,_drawImageDescriptorLayout);
 
+    // Image binding
     VkDescriptorImageInfo imgInfo{
       .imageView = _drawImage.imageView,
       .imageLayout = VK_IMAGE_LAYOUT_GENERAL
     };
-
     VkWriteDescriptorSet drawImageWrite = {
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
       .pNext = nullptr,
@@ -178,6 +225,24 @@ namespace cubik {
       .pImageInfo = &imgInfo
     };
     vkUpdateDescriptorSets(_device, 1, &drawImageWrite, 0, nullptr);
+
+    // World binding
+    VkDescriptorBufferInfo bufferInfo = {
+      .buffer = _worldBuffer,
+      .offset = 0,
+      .range =  sizeof(WORLD_SIZE) + sizeof(VOXEL_SIZE) + sizeof(int) * WORLD_SIZE * WORLD_SIZE * WORLD_SIZE // FIXME
+    };
+    VkWriteDescriptorSet descriptorWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .pNext = nullptr,
+      .dstSet = _drawImageDescriptors,
+      .dstBinding = 1,
+      .dstArrayElement = 0,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      .pBufferInfo = &bufferInfo,
+    };
+    vkUpdateDescriptorSets(_device, 1, &descriptorWrite, 0, nullptr);
 
     _mainDeletionQueue.push_function([&]() {
       globalDescriptorAllocator.destroy_pool(_device);
@@ -199,7 +264,8 @@ namespace cubik {
     VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
 
     VkShaderModule computeDrawShader;
-    if (!vkutil::load_shader_module("../shaders/sphere.comp.spv", _device, &computeDrawShader))
+//    if (!vkutil::load_shader_module("../shaders/sphere.comp.spv", _device, &computeDrawShader))
+    if (!vkutil::load_shader_module("../shaders/naiveRayMarcher.comp.spv", _device, &computeDrawShader))
     {
       fmt::print("Error when building the compute shader \n");
     }

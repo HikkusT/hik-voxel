@@ -1,0 +1,126 @@
+//GLSL version to use
+#version 460
+
+//size of a workgroup for compute
+layout (local_size_x = 16, local_size_y = 16) in;
+
+//descriptor bindings for the pipeline
+layout(rgba16f,set = 0, binding = 0) uniform image2D image;
+
+layout(set = 0, binding = 1) buffer World {
+    int chunkSize;
+    float voxelSize;
+    int data[];
+};
+
+struct Camera {
+    vec3 position;
+    vec3 forward;
+    vec3 up;
+    vec3 right;
+};
+
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+};
+
+vec2 intersectAABB(Ray ray, vec3 boxMin, vec3 boxMax);
+
+void main() {
+    ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(image);
+    vec2 normalizedPosition = 2.0 * (vec2(texelCoord) - size / 2.0) / float(size.x);
+
+    Camera camera;
+    camera.position = vec3(-10., 0., 3.);
+    camera.forward = vec3(1.0, 0., 0.);
+    camera.up = vec3(0., 0., -1.);
+    camera.right = vec3(0., 1., 0.);
+
+    Ray ray;
+    ray.origin = camera.position;
+    ray.direction = camera.forward + normalizedPosition.x * camera.right + normalizedPosition.y * camera.up;
+    ray.direction = normalize(ray.direction);
+
+    vec3 sunDirection = normalize(vec3(-1., -1., -1.));
+    vec3 shadowColor = 0.3 * vec3(0.1490f, 0.3294f, 0.4863f);
+
+    vec3 intersectionPoint;
+    vec3 normal = vec3(0);
+    vec3 insideTest = step(vec3(0), ray.origin) - step(ray.origin, vec3(chunkSize * voxelSize));
+    if (insideTest.x * insideTest.y * insideTest.z > 0.5) {
+        intersectionPoint = ray.origin;
+    } else {
+        vec2 intersectionResult = intersectAABB(ray, vec3(0), vec3(chunkSize * voxelSize));
+        if (intersectionResult.x > intersectionResult.y) {
+          imageStore(image, texelCoord, vec4(vec3(1.0f, 0.8196f, 0.4f), 1.));
+          return;
+        }
+
+        intersectionPoint = ray.origin + ray.direction * intersectionResult.x;
+    }
+
+//    imageStore(image, texelCoord, vec4(intersectionPoint / (voxelSize * chunkSize), 1.));
+//    return;
+
+    ivec3 gridPosition = ivec3(intersectionPoint / voxelSize);
+    ivec3 steps = ivec3(sign(ray.direction));
+    vec3 tMax = (vec3(gridPosition + max(steps, vec3(0.0))) * voxelSize - intersectionPoint) / ray.direction;
+    vec3 tDelta = abs(voxelSize / ray.direction);
+    int iterations = 0;
+
+    for (int i = 0; i < chunkSize * chunkSize * chunkSize; i++) {
+        if (gridPosition.x >= chunkSize || gridPosition.y >= chunkSize || gridPosition.z >= chunkSize || gridPosition.x < 0 || gridPosition.y < 0 || gridPosition.z < 0) {
+            imageStore(image, texelCoord, vec4(vec3(1.0f, 0.8196f, 0.4f), 1.));
+//            imageStore(image, texelCoord, vec4(gridPosition / chunkSize, 1.));
+            return;
+        }
+
+        if (data[gridPosition.x * chunkSize * chunkSize + gridPosition.y * chunkSize + gridPosition.z] > 0.1) {
+//            imageStore(image, texelCoord, vec4(vec3(0.9373f, 0.2784f, 0.4353f), 1.));
+//            imageStore(image, texelCoord, vec4(vec3(gridPosition / (1. * chunkSize)), 1.));
+//            imageStore(image, texelCoord, vec4(vec3(iterations / 3.f), 1.));
+            vec3 color = mix(shadowColor, vec3(0.9373f, 0.2784f, 0.4353f), dot(-normal, sunDirection));
+            imageStore(image, texelCoord, vec4(color, 1.));
+            return;
+        }
+
+        if(tMax.x < tMax.y) {
+            if(tMax.x < tMax.z) {
+                gridPosition.x += steps.x;
+                tMax.x += tDelta.x;
+                normal = vec3(-steps.x, 0, 0);
+            } else {
+                gridPosition.z += steps.z;
+                tMax.z += tDelta.z;
+                normal = vec3(0, 0, -steps.z);
+            }
+        } else {
+            if (tMax.y < tMax.z) {
+                gridPosition.y += steps.y;
+                tMax.y += tDelta.y;
+                normal = vec3(0, -steps.y, 0);
+            } else {
+                gridPosition.z += steps.z;
+                tMax.z += tDelta.z;
+                normal = vec3(0, 0, -steps.z);
+            }
+        }
+
+        iterations++;
+    }
+}
+
+// Adapted from https://gist.github.com/DomNomNom/46bb1ce47f68d255fd5d
+vec2 intersectAABB(Ray ray, vec3 boxMin, vec3 boxMax) {
+    vec3 tMin = (boxMin - ray.origin) / ray.direction;
+    vec3 tMax = (boxMax - ray.origin) / ray.direction;
+    vec3 t1 = min(tMin, tMax);
+    vec3 t2 = max(tMin, tMax);
+    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tFar = min(min(t2.x, t2.y), t2.z);
+
+    return vec2(tNear, tFar);
+};
+
