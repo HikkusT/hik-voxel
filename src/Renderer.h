@@ -6,6 +6,7 @@
 #include "VulkanHelper.h"
 #include "Descriptor.h"
 #include "vk_mem_alloc.h"
+#include "Camera.h"
 
 namespace cubik {
   struct AllocatedImage {
@@ -27,7 +28,6 @@ namespace cubik {
   };
 
   constexpr unsigned int FRAME_OVERLAP = 2;
-  constexpr int WORLD_SIZE = 64;
   constexpr float VOXEL_SIZE = 0.125;
 
 
@@ -69,10 +69,10 @@ namespace cubik {
     uint32_t _graphicsQueueFamily;
 
     void create_swapchain(glm::ivec2 size);
-    void init_world();
+    void init_world(const std::vector<int>& world, int size);
     void init_commands();
     void init_sync_structures();
-    void init_descriptors();
+    void init_descriptors(int worldSize);
     void init_pipelines();
     void init_background_pipelines();
 
@@ -80,10 +80,10 @@ namespace cubik {
 
     void destroy_swapchain();
   public:
-    explicit Renderer(const Window& window);
+    explicit Renderer(const Window& window, const std::vector<int>& world, int worldSize);
     ~Renderer();
 
-    void draw();
+    void draw(const Camera& camera);
     void cleanup();
   };
 }

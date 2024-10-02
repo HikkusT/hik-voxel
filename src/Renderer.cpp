@@ -7,7 +7,7 @@
 #include "Pipeline.h"
 
 namespace cubik {
-  Renderer::Renderer(const Window& window)
+  Renderer::Renderer(const Window& window, const std::vector<int>& world, int worldSize)
   : DisplayWindow(window) {
     vkb::InstanceBuilder vulkanBuilder;
 
@@ -70,10 +70,10 @@ namespace cubik {
     });
 
     create_swapchain(DisplayWindow.Size);
-    init_world();
+    init_world(world, worldSize);
     init_commands();
     init_sync_structures();
-    init_descriptors();
+    init_descriptors(worldSize);
     init_pipelines();
   }
 
@@ -126,8 +126,8 @@ namespace cubik {
     });
   }
 
-  void Renderer::init_world() {
-    size_t bufferSize = sizeof(WORLD_SIZE) + sizeof(VOXEL_SIZE) + sizeof(int) * WORLD_SIZE * WORLD_SIZE * WORLD_SIZE;
+  void Renderer::init_world(const std::vector<int>& world, int size) {
+    size_t bufferSize = sizeof(int) + sizeof(VOXEL_SIZE) + sizeof(int) * world.size();
 
     VkBufferCreateInfo bufferInfo = {
       .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -152,21 +152,21 @@ namespace cubik {
     VK_CHECK(vkBindBufferMemory(_device, _worldBuffer, _worldBufferMemory, 0));
 
 
-    std::vector<int> voxelData(WORLD_SIZE * WORLD_SIZE * WORLD_SIZE, 0);
-    for (int i = 0; i < WORLD_SIZE; i++) {
-      for (int j = 0; j < WORLD_SIZE; j++) {
-        for (int k = 0 ; k < WORLD_SIZE; k++) {
-          voxelData[i * WORLD_SIZE * WORLD_SIZE + j * WORLD_SIZE + k] = k < j ? 1 : 0;
-        }
-      }
-    }
+//    std::vector<int> voxelData(WORLD_SIZE * WORLD_SIZE * WORLD_SIZE, 0);
+//    for (int i = 0; i < WORLD_SIZE; i++) {
+//      for (int j = 0; j < WORLD_SIZE; j++) {
+//        for (int k = 0 ; k < WORLD_SIZE; k++) {
+//          voxelData[i * WORLD_SIZE * WORLD_SIZE + j * WORLD_SIZE + k] = k < j ? 1 : 0;
+//        }
+//      }
+//    }
 //    voxelData[1] = 1;
 
     void* data;
     VK_CHECK(vkMapMemory(_device, _worldBufferMemory, 0, bufferSize, 0, &data));
-    memcpy(data, &WORLD_SIZE, sizeof(WORLD_SIZE));
-    memcpy(static_cast<char*>(data) + sizeof(WORLD_SIZE), &VOXEL_SIZE, sizeof(VOXEL_SIZE));
-    memcpy(static_cast<char*>(data) + sizeof(WORLD_SIZE) + sizeof(VOXEL_SIZE), voxelData.data(), sizeof(int) * WORLD_SIZE * WORLD_SIZE * WORLD_SIZE);
+    memcpy(data, &size, sizeof(int));
+    memcpy(static_cast<char*>(data) + sizeof(int), &VOXEL_SIZE, sizeof(VOXEL_SIZE));
+    memcpy(static_cast<char*>(data) + sizeof(int) + sizeof(VOXEL_SIZE), world.data(), sizeof(int) * world.size());
 
     vkUnmapMemory(_device, _worldBufferMemory);
   }
@@ -195,7 +195,7 @@ namespace cubik {
     }
   }
 
-  void Renderer::init_descriptors() {
+  void Renderer::init_descriptors(int worldSize) {
     std::vector<vkutil::DescriptorAllocator::PoolSizeRatio> sizes = {
       { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 }
     };
@@ -230,7 +230,7 @@ namespace cubik {
     VkDescriptorBufferInfo bufferInfo = {
       .buffer = _worldBuffer,
       .offset = 0,
-      .range =  sizeof(WORLD_SIZE) + sizeof(VOXEL_SIZE) + sizeof(int) * WORLD_SIZE * WORLD_SIZE * WORLD_SIZE // FIXME
+      .range =  sizeof(int) + sizeof(VOXEL_SIZE) + sizeof(int) * worldSize * worldSize * worldSize // FIXME
     };
     VkWriteDescriptorSet descriptorWrite = {
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -295,7 +295,7 @@ namespace cubik {
 
 
   // Main
-  void Renderer::draw() {
+  void Renderer::draw(const Camera& camera) {
     VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, true, 1000000000));
     get_current_frame()._deletionQueue.flush();
     VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));

@@ -12,9 +12,10 @@ add_executable(hik-voxel
         src/Renderer.cpp
         src/VulkanHelper.cpp
         src/Descriptor.cpp
-        src/Descriptor.h
         src/Pipeline.cpp
-        src/Pipeline.h)
+        src/Camera.cpp
+        src/VoxLoader.cpp
+        src/ProceduralLoader.cpp)
 
 find_package(SDL2 CONFIG REQUIRED)
 target_link_libraries(hik-voxel
