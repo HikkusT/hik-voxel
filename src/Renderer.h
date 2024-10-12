@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <glm/vec4.hpp>
 #include "vulkan/vulkan_core.h"
 #include "Window.h"
 #include "VulkanHelper.h"
@@ -26,6 +27,15 @@ namespace cubik {
 
     vkutil::DeletionQueue _deletionQueue;
   };
+
+  struct CameraPushConstants {
+    glm::vec3 position;
+    uint8_t padding1;
+    glm::vec3 forward;
+    uint8_t padding2;
+    glm::vec3 up;
+  };
+
 
   constexpr unsigned int FRAME_OVERLAP = 2;
   constexpr float VOXEL_SIZE = 0.125;

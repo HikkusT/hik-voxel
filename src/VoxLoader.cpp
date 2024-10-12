@@ -1,14 +1,17 @@
 #include "VoxLoader.h"
 #define OGT_VOX_IMPLEMENTATION
 #include "../vendor/ogt_vox.h"
+#include "spdlog/spdlog.h"
 
 namespace cubik {
   std::vector<int> loadVoxFile(const char *filename, int& size) {
     FILE * fp;
     if (0 != fopen_s(&fp, filename, "rb"))
       fp = 0;
-//    if (!fp)
-//      return NULL;
+    if (!fp) {
+      spdlog::error("Failed to open file {}", filename);
+      abort();
+    }
 
     // get the buffer size which matches the size of the file
     fseek(fp, 0, SEEK_END);
@@ -31,10 +34,13 @@ namespace cubik {
     std::vector<int> voxelData(size * size * size, 0);
     for (int x = 0; x < size; x++) {
       for (int y = 0; y < size; y++) {
-        for (int z = 0 ; z < size; z++) {
-          int index = z * size * size + y * size + x;
-          voxelData[index] = (z > model->size_z || y > model->size_y || x > model->size_x) ? 0
-            : model->voxel_data[x + (y * model->size_x) + (z * model->size_x * model->size_y)] != 0;
+        for (int z = 0; z < size; z++) {
+          int index = y * size * size + (size - 1 - z) * size + x;
+          if (x < model->size_x && y < model->size_y && z < model->size_z) {
+            voxelData[index] = model->voxel_data[x + (y * model->size_x) + (z * model->size_x * model->size_y)] != 0;
+          } else {
+            voxelData[index] = 0;
+          }
         }
       }
     }

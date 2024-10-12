@@ -3,7 +3,7 @@
 #include "Window.h"
 
 namespace cubik {
-  Window::Window(glm::ivec2 size, const std::string &name)
+  Window::Window(glm::ivec2 size, const std::string &name, const Uint8* &keyboardState)
   : Size(size) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
       spdlog::error("Failed to initialize SDL: {}", SDL_GetError());
@@ -22,16 +22,26 @@ namespace cubik {
       SDL_Quit();
       abort();
     }
+
+    keyboardState = SDL_GetKeyboardState(nullptr);
   }
 
-  void Window::processInputs() {
+  MouseInput Window::processInputs() {
+    MouseInput mouseInput {};
     SDL_Event e;
     while (SDL_PollEvent(&e) != 0) {
       if (e.type == SDL_QUIT)
         _isClosed = true;
 
+      if (e.type == SDL_MOUSEMOTION) {
+        mouseInput.yaw += (float)e.motion.xrel / 200.f;
+        mouseInput.pitch -= (float)e.motion.yrel / 200.f;
+      }
+
       // TODO: Handle minimize/maximize
     }
+
+    return mouseInput;
   }
 
   VkSurfaceKHR const Window::createVulkanSurface(const VkInstance *instance) const {

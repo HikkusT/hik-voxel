@@ -2,6 +2,9 @@
 #include "VkBootstrap.h"
 #include "spdlog/spdlog.h"
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/string_cast.hpp>
+
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 #include "Pipeline.h"
@@ -151,17 +154,6 @@ namespace cubik {
 
     VK_CHECK(vkBindBufferMemory(_device, _worldBuffer, _worldBufferMemory, 0));
 
-
-//    std::vector<int> voxelData(WORLD_SIZE * WORLD_SIZE * WORLD_SIZE, 0);
-//    for (int i = 0; i < WORLD_SIZE; i++) {
-//      for (int j = 0; j < WORLD_SIZE; j++) {
-//        for (int k = 0 ; k < WORLD_SIZE; k++) {
-//          voxelData[i * WORLD_SIZE * WORLD_SIZE + j * WORLD_SIZE + k] = k < j ? 1 : 0;
-//        }
-//      }
-//    }
-//    voxelData[1] = 1;
-
     void* data;
     VK_CHECK(vkMapMemory(_device, _worldBufferMemory, 0, bufferSize, 0, &data));
     memcpy(data, &size, sizeof(int));
@@ -255,11 +247,19 @@ namespace cubik {
   }
 
   void Renderer::init_background_pipelines() {
+    VkPushConstantRange pushConstant {
+      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      .offset = 0,
+      .size = sizeof(CameraPushConstants)
+    };
+
     VkPipelineLayoutCreateInfo computeLayout {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
       .pNext = nullptr,
       .setLayoutCount = 1,
-      .pSetLayouts = &_drawImageDescriptorLayout
+      .pSetLayouts = &_drawImageDescriptorLayout,
+      .pushConstantRangeCount = 1,
+      .pPushConstantRanges = &pushConstant,
     };
     VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
 
@@ -303,6 +303,11 @@ namespace cubik {
     uint32_t swapchainImageIndex;
     VK_CHECK(vkAcquireNextImageKHR(_device, _swapchain, 1000000000, get_current_frame()._swapchainSemaphore, nullptr, &swapchainImageIndex));
 
+    CameraPushConstants pc {
+      .position = camera.Position,
+      .forward = camera.Forward,
+      .up = camera.Up
+    };
 
     VkCommandBuffer cmd = get_current_frame()._mainCommandBuffer;
     VK_CHECK(vkResetCommandBuffer(cmd, 0));
@@ -316,6 +321,7 @@ namespace cubik {
 //    draw_background(cmd);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+    vkCmdPushConstants(cmd, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CameraPushConstants), &pc);
     vkCmdDispatch(cmd, std::ceil(_drawExtent.width / 16.0), std::ceil(_drawExtent.height / 16.0), 1);
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
