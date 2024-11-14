@@ -8,6 +8,7 @@
 #include "Descriptor.h"
 #include "vk_mem_alloc.h"
 #include "Camera.h"
+#include "World.h"
 
 namespace cubik {
   struct AllocatedImage {
@@ -79,10 +80,10 @@ namespace cubik {
     uint32_t _graphicsQueueFamily;
 
     void create_swapchain(glm::ivec2 size);
-    void init_world(const std::vector<int>& world, int size);
+    void init_world(const World& world);
     void init_commands();
     void init_sync_structures();
-    void init_descriptors(int worldSize);
+    void init_descriptors();
     void init_pipelines();
     void init_background_pipelines();
 
@@ -90,7 +91,7 @@ namespace cubik {
 
     void destroy_swapchain();
   public:
-    explicit Renderer(const Window& window, const std::vector<int>& world, int worldSize);
+    explicit Renderer(const Window& window, const World& world);
     ~Renderer();
 
     void draw(const Camera& camera);

@@ -6,6 +6,7 @@
 #include "Camera.h"
 #include "ProceduralLoader.h"
 #include "VoxLoader.h"
+#include "UncompressedGridWorld.h"
 
 constexpr int PROCEDURAL_WORLD_SIZE = 10;
 
@@ -13,13 +14,14 @@ int main(int argc, char *argv[]) {
   spdlog::info("Starting Cubik");
 
   int worldSize = PROCEDURAL_WORLD_SIZE;
-  auto world = cubik::loadStaircase(worldSize);
-  world = cubik::loadVoxFile("../models/teapot_simple.vox", worldSize);
+  auto rawWorld = cubik::loadStaircase(worldSize);
+  rawWorld = cubik::loadVoxFile("../models/teapot_simple.vox", worldSize);
   auto camera = cubik::Camera(glm::vec3(3., 0., -10.));
 
   const uint8_t* keyboardInput;
   auto window = cubik::Window(glm::ivec2(1700, 900), "Cubik", keyboardInput);
-  auto renderer = cubik::Renderer(window, world, worldSize);
+  auto world = cubik::UncompressedGridWorld(rawWorld, worldSize);
+  auto renderer = cubik::Renderer(window, world);
 
   auto lastFrameTime = std::chrono::high_resolution_clock::now();
   while (!window.IsClosed()) {

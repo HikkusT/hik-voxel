@@ -10,7 +10,7 @@
 #include "Pipeline.h"
 
 namespace cubik {
-  Renderer::Renderer(const Window& window, const std::vector<int>& world, int worldSize)
+  Renderer::Renderer(const Window& window, const World& world)
   : DisplayWindow(window) {
     vkb::InstanceBuilder vulkanBuilder;
 
@@ -73,10 +73,10 @@ namespace cubik {
     });
 
     create_swapchain(DisplayWindow.Size);
-    init_world(world, worldSize);
+    init_world(world);
     init_commands();
     init_sync_structures();
-    init_descriptors(worldSize);
+    init_descriptors();
     init_pipelines();
   }
 
@@ -129,8 +129,8 @@ namespace cubik {
     });
   }
 
-  void Renderer::init_world(const std::vector<int>& world, int size) {
-    size_t bufferSize = sizeof(int) + sizeof(VOXEL_SIZE) + sizeof(int) * world.size();
+  void Renderer::init_world(const World& world) {
+    size_t bufferSize = sizeof(VOXEL_SIZE) + world.calculateSerializedSize();
 
     VkBufferCreateInfo bufferInfo = {
       .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -156,9 +156,8 @@ namespace cubik {
 
     void* data;
     VK_CHECK(vkMapMemory(_device, _worldBufferMemory, 0, bufferSize, 0, &data));
-    memcpy(data, &size, sizeof(int));
-    memcpy(static_cast<char*>(data) + sizeof(int), &VOXEL_SIZE, sizeof(VOXEL_SIZE));
-    memcpy(static_cast<char*>(data) + sizeof(int) + sizeof(VOXEL_SIZE), world.data(), sizeof(int) * world.size());
+    memcpy(data, &VOXEL_SIZE, sizeof(VOXEL_SIZE));
+    world.serialize(static_cast<char*>(data) + sizeof(VOXEL_SIZE));
 
     vkUnmapMemory(_device, _worldBufferMemory);
   }
@@ -187,7 +186,7 @@ namespace cubik {
     }
   }
 
-  void Renderer::init_descriptors(int worldSize) {
+  void Renderer::init_descriptors() {
     std::vector<vkutil::DescriptorAllocator::PoolSizeRatio> sizes = {
       { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 }
     };
@@ -222,7 +221,7 @@ namespace cubik {
     VkDescriptorBufferInfo bufferInfo = {
       .buffer = _worldBuffer,
       .offset = 0,
-      .range =  sizeof(int) + sizeof(VOXEL_SIZE) + sizeof(int) * worldSize * worldSize * worldSize // FIXME
+      .range = VK_WHOLE_SIZE
     };
     VkWriteDescriptorSet descriptorWrite = {
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
