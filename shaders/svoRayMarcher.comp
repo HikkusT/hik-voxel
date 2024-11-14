@@ -1,0 +1,139 @@
+//GLSL version to use
+#version 460
+
+//size of a workgroup for compute
+layout (local_size_x = 16, local_size_y = 16) in;
+
+//descriptor bindings for the pipeline
+layout(rgba16f,set = 0, binding = 0) uniform image2D image;
+
+layout(set = 0, binding = 1) buffer World {
+    float voxelSize;
+    int chunkSize;
+    int data[];
+} world;
+
+layout(push_constant) uniform Constants {
+    vec3 cameraPosition;
+    vec3 cameraForward;
+    vec3 cameraUp;
+//    vec3 cameraRight;
+} constants;
+
+struct Camera {
+    vec3 position;
+    vec3 forward;
+    vec3 up;
+    vec3 right;
+};
+
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+};
+
+vec2 intersectAABB(Ray ray, vec3 boxMin, vec3 boxMax);
+
+void main() {
+    ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(image);
+    vec2 normalizedPosition = 2.0 * (vec2(texelCoord) - size / 2.0) / float(size.x);
+
+    Camera camera;
+    camera.position = constants.cameraPosition;
+    camera.forward = constants.cameraForward;
+    camera.up = constants.cameraUp;
+    camera.right = cross(camera.up, camera.forward);
+
+    Ray ray;
+    ray.origin = camera.position;
+    ray.direction = camera.forward + normalizedPosition.x * camera.right + normalizedPosition.y * camera.up;
+    ray.direction = normalize(ray.direction);
+
+    vec3 sunDirection = normalize(vec3(0, 1., -1.));
+    vec3 shadowColor = 0.3 * vec3(0.1490f, 0.3294f, 0.4863f);
+
+    vec3 intersectionPoint;
+    vec3 normal = vec3(0);
+
+    vec3 minWorldBounds = vec3(0);
+    vec3 maxWorldBounds = vec3(world.chunkSize * world.voxelSize);
+
+    vec3 insideTest = step(minWorldBounds, ray.origin) - step(maxWorldBounds, ray.origin);
+    if (all(greaterThanEqual(insideTest, vec3(0.8)))) {
+        intersectionPoint = ray.origin;
+    } else {
+        vec2 intersectionResult = intersectAABB(ray, minWorldBounds, maxWorldBounds);
+        if (intersectionResult.y < 0 || intersectionResult.x > intersectionResult.y) {
+          imageStore(image, texelCoord, vec4(vec3(1.0f, 0.8196f, 0.4f), 1.));
+//          imageStore(image, texelCoord, vec4(0.5f * (ray.direction + vec3(1)), 1.));
+          return;
+        }
+
+        intersectionPoint = ray.origin + ray.direction * intersectionResult.x;
+    }
+
+//    imageStore(image, texelCoord, vec4(intersectionPoint / (world.voxelSize * world.chunkSize), 1.));
+//    return;
+
+    ivec3 gridPosition = clamp(ivec3(intersectionPoint / world.voxelSize), ivec3(0), ivec3(world.chunkSize - 1)); // Fixing precision problems
+    ivec3 steps = ivec3(sign(ray.direction));
+    vec3 tMax = (vec3(gridPosition + max(steps, vec3(0.0))) * world.voxelSize - intersectionPoint) / ray.direction;
+    vec3 tDelta = abs(world.voxelSize / ray.direction);
+    int iterations = 0;
+
+    for (int i = 0; i < world.chunkSize * world.chunkSize * world.chunkSize; i++) {
+        if (any(greaterThanEqual(gridPosition, vec3(world.chunkSize))) || any(lessThan(gridPosition, vec3(0)))) {
+            imageStore(image, texelCoord, vec4(vec3(1.0f, 0.8196f, 0.4f), 1.));
+//            imageStore(image, texelCoord, vec4(gridPosition / world.chunkSize, 1.));
+//            imageStore(image, texelCoord, vec4(0.5f * (steps + vec3(1)), 1.));
+            return;
+        }
+
+        if (world.data[gridPosition.x * world.chunkSize * world.chunkSize + gridPosition.y * world.chunkSize + gridPosition.z] > 0.1) {
+//            imageStore(image, texelCoord, vec4(vec3(0.9373f, 0.2784f, 0.4353f), 1.));
+//            imageStore(image, texelCoord, vec4(vec3(gridPosition / (1. * world.chunkSize)), 1.));
+//            imageStore(image, texelCoord, vec4(vec3(iterations / 3.f), 1.));
+            vec3 color = mix(shadowColor, vec3(0.9373f, 0.2784f, 0.4353f), dot(-normal, sunDirection));
+            imageStore(image, texelCoord, vec4(color, 1.));
+            return;
+        }
+
+        if(tMax.x < tMax.y) {
+            if(tMax.x < tMax.z) {
+                gridPosition.x += steps.x;
+                tMax.x += tDelta.x;
+                normal = vec3(-steps.x, 0, 0);
+            } else {
+                gridPosition.z += steps.z;
+                tMax.z += tDelta.z;
+                normal = vec3(0, 0, -steps.z);
+            }
+        } else {
+            if (tMax.y < tMax.z) {
+                gridPosition.y += steps.y;
+                tMax.y += tDelta.y;
+                normal = vec3(0, -steps.y, 0);
+            } else {
+                gridPosition.z += steps.z;
+                tMax.z += tDelta.z;
+                normal = vec3(0, 0, -steps.z);
+            }
+        }
+
+        iterations++;
+    }
+}
+
+// Adapted from https://gist.github.com/DomNomNom/46bb1ce47f68d255fd5d
+vec2 intersectAABB(Ray ray, vec3 boxMin, vec3 boxMax) {
+    vec3 tMin = (boxMin - ray.origin) / ray.direction;
+    vec3 tMax = (boxMax - ray.origin) / ray.direction;
+    vec3 t1 = min(tMin, tMax);
+    vec3 t2 = max(tMin, tMax);
+    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tFar = min(min(t2.x, t2.y), t2.z);
+
+    return vec2(tNear, tFar);
+};
+

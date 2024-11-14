@@ -84,8 +84,8 @@ namespace cubik {
     void init_commands();
     void init_sync_structures();
     void init_descriptors();
-    void init_pipelines();
-    void init_background_pipelines();
+    void init_pipelines(const cubik::World& world);
+    void init_background_pipelines(const std::string& shaderName);
 
     void draw_background(VkCommandBuffer cmd);
 

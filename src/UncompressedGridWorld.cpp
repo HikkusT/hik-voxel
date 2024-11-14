@@ -15,4 +15,13 @@ namespace cubik {
     dataPtr += sizeof(_worldSize);
     memcpy(dataPtr, _worldData.data(), sizeof(int) * _worldData.size());
   }
+
+  const std::string& UncompressedGridWorld::getCompatibleShader() const {
+    static const std::string compatibleShader = "naiveRayMarcher";
+    return compatibleShader;
+  }
+
+  int UncompressedGridWorld::get(glm::ivec3 position) const {
+    return _worldData[position.x + (position.y * _worldSize) + (position.z * _worldSize * _worldSize)];
+  }
 }

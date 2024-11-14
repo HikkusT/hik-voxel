@@ -16,8 +16,9 @@ add_executable(hik-voxel
         src/Camera.cpp
         src/VoxLoader.cpp
         src/ProceduralLoader.cpp
+        src/SvoWorld.cpp
         src/UncompressedGridWorld.cpp
-        src/UncompressedGridWorld.h)
+        src/World.h)
 
 find_package(SDL2 CONFIG REQUIRED)
 target_link_libraries(hik-voxel

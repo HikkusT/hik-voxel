@@ -4,6 +4,19 @@
 #include "spdlog/spdlog.h"
 
 namespace cubik {
+  int pow2roundup(int x)
+  {
+    if (x < 0)
+      return 0;
+    --x;
+    x |= x >> 1;
+    x |= x >> 2;
+    x |= x >> 4;
+    x |= x >> 8;
+    x |= x >> 16;
+    return x+1;
+  }
+
   std::vector<int> loadVoxFile(const char *filename, int& size) {
     FILE * fp;
     if (0 != fopen_s(&fp, filename, "rb"))
@@ -30,7 +43,7 @@ namespace cubik {
     // the buffer can be safely deleted once the scene is instantiated.
     delete[] buffer;
 
-    size = (int) std::max(model->size_x, std::max(model->size_y, model->size_z));
+    size = pow2roundup((int) std::max(model->size_x, std::max(model->size_y, model->size_z)));
     std::vector<int> voxelData(size * size * size, 0);
     for (int x = 0; x < size; x++) {
       for (int y = 0; y < size; y++) {
@@ -45,6 +58,7 @@ namespace cubik {
       }
     }
 
+    spdlog::info("loaded: {} / {} {} {}", size, model->size_x, model->size_y, model->size_z);
     return voxelData;
   }
 }

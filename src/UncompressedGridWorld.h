@@ -14,6 +14,10 @@ namespace cubik {
     // Serializes the world data into the provided buffer
     void serialize(void *target) const override;
 
+    const std::string& getCompatibleShader() const override;
+
+    int get(glm::ivec3 position) const override;
+
   private:
     std::vector<int> _worldData;
     int _worldSize;

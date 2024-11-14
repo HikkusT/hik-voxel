@@ -77,7 +77,7 @@ namespace cubik {
     init_commands();
     init_sync_structures();
     init_descriptors();
-    init_pipelines();
+    init_pipelines(world);
   }
 
   void Renderer::create_swapchain(glm::ivec2 size) {
@@ -241,11 +241,11 @@ namespace cubik {
     });
   }
 
-  void Renderer::init_pipelines() {
-    init_background_pipelines();
+  void Renderer::init_pipelines(const cubik::World& world) {
+    init_background_pipelines(world.getCompatibleShader());
   }
 
-  void Renderer::init_background_pipelines() {
+  void Renderer::init_background_pipelines(const std::string& shaderName) {
     VkPushConstantRange pushConstant {
       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
       .offset = 0,
@@ -263,8 +263,9 @@ namespace cubik {
     VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
 
     VkShaderModule computeDrawShader;
+    std::string shaderPath = "../shaders/" + shaderName + ".comp.spv";
 //    if (!vkutil::load_shader_module("../shaders/sphere.comp.spv", _device, &computeDrawShader))
-    if (!vkutil::load_shader_module("../shaders/naiveRayMarcher.comp.spv", _device, &computeDrawShader))
+    if (!vkutil::load_shader_module(shaderPath.c_str(), _device, &computeDrawShader))
     {
       fmt::print("Error when building the compute shader \n");
     }
