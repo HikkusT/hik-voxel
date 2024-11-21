@@ -2,6 +2,9 @@
 #define OGT_VOX_IMPLEMENTATION
 #include "../vendor/ogt_vox.h"
 #include "spdlog/spdlog.h"
+#include <glm/glm.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/string_cast.hpp>
 
 namespace cubik {
   int pow2roundup(int x)
@@ -43,16 +46,52 @@ namespace cubik {
     // the buffer can be safely deleted once the scene is instantiated.
     delete[] buffer;
 
-    size = pow2roundup((int) std::max(model->size_x, std::max(model->size_y, model->size_z)));
+    auto minBounds = glm::ivec3(0);
+    auto maxBounds = glm::ivec3(0);
+    for (int i = 0; i < scene->num_models; i++) {
+      auto currentModel = scene->models[i];
+      auto currentInstance = scene->instances[i];
+      auto modelSize = glm::ivec3(currentModel->size_x, currentModel->size_y, currentModel->size_z);
+      auto position = glm::ivec3(currentInstance.transform.m30, currentInstance.transform.m31, currentInstance.transform.m32);
+
+      minBounds = glm::min(position, minBounds);
+      maxBounds = glm::max(position + modelSize, maxBounds);
+    }
+    auto totalSize = maxBounds - minBounds;
+    spdlog::info("Bounds from {} to {}. So true size is {}", glm::to_string(minBounds), glm::to_string(maxBounds), glm::to_string(totalSize));
+
+//    size = pow2roundup((int) std::max(model->size_x, std::max(model->size_y, model->size_z)));
+//    std::vector<int> voxelData(size * size * size, 0);
+//    for (int x = 0; x < size; x++) {
+//      for (int y = 0; y < size; y++) {
+//        for (int z = 0; z < size; z++) {
+//          int index = y * size * size + (size - 1 - z) * size + x;
+//          if (x < model->size_x && y < model->size_y && z < model->size_z) {
+//            voxelData[index] = model->voxel_data[x + (y * model->size_x) + (z * model->size_x * model->size_y)] != 0;
+//          } else {
+//            voxelData[index] = 0;
+//          }
+//        }
+//      }
+//    }
+
+    size = pow2roundup((int) std::max(totalSize.x, std::max(totalSize.y, totalSize.z)));
     std::vector<int> voxelData(size * size * size, 0);
-    for (int x = 0; x < size; x++) {
-      for (int y = 0; y < size; y++) {
-        for (int z = 0; z < size; z++) {
-          int index = y * size * size + (size - 1 - z) * size + x;
-          if (x < model->size_x && y < model->size_y && z < model->size_z) {
-            voxelData[index] = model->voxel_data[x + (y * model->size_x) + (z * model->size_x * model->size_y)] != 0;
-          } else {
-            voxelData[index] = 0;
+
+    for (int i = 0; i < scene->num_models; i++) {
+      auto currentModel = scene->models[i];
+      auto currentInstance = scene->instances[i];
+      auto modelSize = glm::ivec3(currentModel->size_x, currentModel->size_y, currentModel->size_z);
+      auto position = glm::ivec3(currentInstance.transform.m30, currentInstance.transform.m31, currentInstance.transform.m32);
+
+      int iterationSize = (int) std::max(modelSize.x, std::max(modelSize.y, modelSize.z));
+      for (int x = 0; x < iterationSize; x++) {
+        for (int y = 0; y < iterationSize; y++) {
+          for (int z = 0; z < iterationSize; z++) {
+            int index = (y + position.y - minBounds.y) * size * size + (size - 1 - (z + position.z - minBounds.z)) * size + (x + position.x - minBounds.x);
+            if (x < modelSize.x && y < modelSize.y && z < modelSize.z) {
+              voxelData[index] = currentModel->voxel_data[x + (y * currentModel->size_x) + (z * currentModel->size_x * currentModel->size_y)] != 0;
+            }
           }
         }
       }
