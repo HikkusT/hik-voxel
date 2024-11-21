@@ -90,7 +90,7 @@ void main() {
             return;
         }
 
-        if (world.data[gridPosition.x * world.chunkSize * world.chunkSize + gridPosition.y * world.chunkSize + gridPosition.z] > 0.1) {
+        if (world.data[gridPosition.z * world.chunkSize * world.chunkSize + gridPosition.y * world.chunkSize + gridPosition.x] > 0.1) {
 //            imageStore(image, texelCoord, vec4(vec3(0.9373f, 0.2784f, 0.4353f), 1.));
 //            imageStore(image, texelCoord, vec4(vec3(gridPosition / (1. * world.chunkSize)), 1.));
 //            imageStore(image, texelCoord, vec4(vec3(iterations / 3.f), 1.));
@@ -123,6 +123,9 @@ void main() {
 
         iterations++;
     }
+
+    imageStore(image, texelCoord, vec4(0, 1, 0, 1));
+    return;
 }
 
 // Adapted from https://gist.github.com/DomNomNom/46bb1ce47f68d255fd5d
