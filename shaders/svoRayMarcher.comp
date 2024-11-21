@@ -41,6 +41,28 @@ struct Ray {
 vec2 intersectAABB(Ray ray, vec3 boxMin, vec3 boxMax);
 ivec2 getValueAt(ivec3 position);
 
+vec3 calculateNormalAtAABBIntersection(vec3 hitPoint, vec3 boxMin, vec3 boxMax) {
+    const float epsilon = 1e-5;
+    vec3 normal = vec3(0.0);
+
+    // Check which face was hit by comparing hitPoint to box bounds
+    if (abs(hitPoint.x - boxMin.x) < epsilon) {
+        normal = vec3(-1.0, 0.0, 0.0);  // Left face
+    } else if (abs(hitPoint.x - boxMax.x) < epsilon) {
+        normal = vec3(1.0, 0.0, 0.0);   // Right face
+    } else if (abs(hitPoint.y - boxMin.y) < epsilon) {
+        normal = vec3(0.0, -1.0, 0.0);  // Bottom face
+    } else if (abs(hitPoint.y - boxMax.y) < epsilon) {
+        normal = vec3(0.0, 1.0, 0.0);   // Top face
+    } else if (abs(hitPoint.z - boxMin.z) < epsilon) {
+        normal = vec3(0.0, 0.0, -1.0);  // Back face
+    } else if (abs(hitPoint.z - boxMax.z) < epsilon) {
+        normal = vec3(0.0, 0.0, 1.0);   // Front face
+    }
+
+    return normal;
+}
+
 void main() {
     ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size = imageSize(image);
@@ -61,7 +83,6 @@ void main() {
     vec3 shadowColor = 0.3 * vec3(0.1490f, 0.3294f, 0.4863f);
 
     vec3 intersectionPoint;
-    vec3 normal = vec3(0);
 
     vec3 minWorldBounds = vec3(0);
     vec3 maxWorldBounds = vec3(world.chunkSize * world.voxelSize);
@@ -97,12 +118,12 @@ void main() {
 //    imageStore(image, texelCoord, vec4(gridPosition / (1. * world.chunkSize), 1.));
 //    return;
 
-    vec3 color = vec3(0);
+    vec3 debugColor = vec3(0);
     ivec3 lastGridPos = ivec3(-1);
     for (int i = 0; i < world.chunkSize * world.chunkSize * world.chunkSize; i++) {
         if (any(greaterThanEqual(gridPosition, vec3(world.chunkSize))) || any(lessThan(gridPosition, vec3(0)))) {
-//            imageStore(image, texelCoord, vec4(vec3(1.0f, 0.8196f, 0.4f), 1.));
-        imageStore(image, texelCoord, vec4(color, 1.));
+            imageStore(image, texelCoord, vec4(vec3(1.0f, 0.8196f, 0.4f), 1.));
+//        imageStore(image, texelCoord, vec4(debugColor, 1.));
 //            imageStore(image, texelCoord, mix(vec4(vec3(1.0f, 0.8196f, 0.4f), 1.), vec4(intersectionPoint / (world.voxelSize * world.chunkSize), 1.), 0.2));
 //            imageStore(image, texelCoord, vec4(gridPosition / world.chunkSize, 1.));
 //            imageStore(image, texelCoord, vec4(0.5f * (steps + vec3(1)), 1.));
@@ -111,16 +132,23 @@ void main() {
 
         ivec2 data = getValueAt(gridPosition);
         int voxelSizeAtPosition = data.y;
-        color += vec3(voxelSizeAtPosition / (1. * world.chunkSize)) * 0.1f;
+        vec3 minBounding = world.voxelSize * vec3((gridPosition / voxelSizeAtPosition) * voxelSizeAtPosition);
+        vec3 maxBounding = world.voxelSize * vec3((gridPosition / voxelSizeAtPosition + ivec3(1)) * voxelSizeAtPosition);
+        vec2 result = intersectAABB(ray, minBounding, maxBounding);
+
+        debugColor += vec3(voxelSizeAtPosition / (1. * world.chunkSize)) * 0.1f;
         if (data.x > 0.1) {
 //            imageStore(image, texelCoord, vec4(vec3(0.9373f, 0.2784f, 0.4353f), 1.));
 //            imageStore(image, texelCoord, vec4(vec3(gridPosition / (1. * world.chunkSize)), 1.));
 //            imageStore(image, texelCoord, vec4(vec3(iterations / 3.f), 1.));
 //            imageStore(image, texelCoord, vec4(vec3(voxelSizeAtPosition / (1. * world.chunkSize)), 1.));
-//            vec3 color = mix(shadowColor, vec3(0.9373f, 0.2784f, 0.4353f), dot(-normal, sunDirection));
-//            imageStore(image, texelCoord, vec4(color, 1.));
-//            imageStore(image, texelCoord, vec4(voxelSizeAtPosition / (1. * world.chunkSize), 0, 0, 1.));
+            vec3 hitPoint = ray.origin + ray.direction * result.x;  // Calculate intersection point
+            vec3 normal = calculateNormalAtAABBIntersection(hitPoint, minBounding, maxBounding);
+
+            vec3 color = mix(shadowColor, vec3(0.9373f, 0.2784f, 0.4353f), dot(-normal, sunDirection));
             imageStore(image, texelCoord, vec4(color, 1.));
+//            imageStore(image, texelCoord, vec4(voxelSizeAtPosition / (1. * world.chunkSize), 0, 0, 1.));
+//            imageStore(image, texelCoord, vec4(color, 1.));
 //            imageStore(image, texelCoord, mix(vec4(color, 1.), vec4(intersectionPoint / (world.voxelSize * world.chunkSize), 1.), 0.2));
             return;
         }
@@ -128,9 +156,6 @@ void main() {
 //        imageStore(image, texelCoord, vec4(((gridPosition / voxelSizeAtPosition + ivec3(1)) * voxelSizeAtPosition) / (1. * world.chunkSize), 1.));
 //        return;
 
-        vec3 minBounding = world.voxelSize * vec3((gridPosition / voxelSizeAtPosition) * voxelSizeAtPosition);
-        vec3 maxBounding = world.voxelSize * vec3((gridPosition / voxelSizeAtPosition + ivec3(1)) * voxelSizeAtPosition);
-        vec2 result = intersectAABB(ray, minBounding, maxBounding);
         if (result.y < 0 || result.x > result.y) {
             imageStore(image, texelCoord, vec4(1, iterations / 3.f, 1, 1.));
 //            debugPrintfEXT("Unexpected AABB test. Iteration %d. Test is running on gridPosition (%d, %d, %d) so testing from (%f, %f, %f) to (%f, %f, %f) and results are tNear = %f tFar = %f", iterations, gridPosition.x, gridPosition.y, gridPosition.z, minBounding.x, minBounding.y, minBounding.z, maxBounding.x, maxBounding.y, maxBounding.z, result.x, result.y);
