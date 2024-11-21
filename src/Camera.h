@@ -9,6 +9,7 @@ namespace cubik {
   private:
   public:
     explicit Camera(glm::vec3 position);
+    explicit Camera(const std::string& configName);
 
     glm::vec3 Position{};
     glm::vec3 Forward{};

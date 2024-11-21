@@ -12,18 +12,35 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/string_cast.hpp>
 
-constexpr int PROCEDURAL_WORLD_SIZE = 4;
+constexpr int PROCEDURAL_WORLD_SIZE = 32;
+constexpr bool isSvoEnabled = false;
+std::string subject = "pieta512.vox";
+
+std::unique_ptr<cubik::World> createWorld(const std::vector<int>& rawWorld, int worldSize) {
+  if (isSvoEnabled) {
+    return std::make_unique<cubik::SvoWorld>(rawWorld, worldSize);
+  } else {
+    return std::make_unique<cubik::UncompressedGridWorld>(rawWorld, worldSize);
+  }
+}
 
 int main(int argc, char *argv[]) {
   spdlog::info("Starting Cubik");
 
   int worldSize = PROCEDURAL_WORLD_SIZE;
   auto rawWorld = cubik::loadStaircase(worldSize);
-  rawWorld = cubik::loadVoxFile("../models/teapot_simple.vox", worldSize);
-  auto camera = cubik::Camera(glm::vec3(3., 0., -10.));
+  rawWorld = cubik::loadVoxFile(("../models/" + subject).c_str(), worldSize);
+  auto camera = cubik::Camera(subject);
 
-  auto world = cubik::UncompressedGridWorld(rawWorld, worldSize);
-  auto svoWorld = cubik::SvoWorld(rawWorld, worldSize);
+  int numberOfSolidVoxels = 0;
+  for (int i = 0; i < rawWorld.size(); i++) {
+    if (rawWorld[i] > 0) numberOfSolidVoxels++;
+  }
+  spdlog::info("World contains {} solid voxels", numberOfSolidVoxels);
+
+//  auto world = cubik::UncompressedGridWorld(rawWorld, worldSize);
+//  auto svoWorld = cubik::SvoWorld(rawWorld, worldSize);
+  auto world = createWorld(rawWorld, worldSize);
 //  svoWorld.print();
 //
 //  for (int x = 0; x < worldSize; x++) {
@@ -42,7 +59,7 @@ int main(int argc, char *argv[]) {
 
   const uint8_t* keyboardInput;
   auto window = cubik::Window(glm::ivec2(1700, 900), "Cubik", keyboardInput);
-  auto renderer = cubik::Renderer(window, world);
+  auto renderer = cubik::Renderer(window, *world);
 
   auto lastFrameTime = std::chrono::high_resolution_clock::now();
   while (!window.IsClosed()) {
